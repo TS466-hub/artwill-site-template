@@ -146,14 +146,14 @@ EOF
 }
 
 cmd_list() {
-  printf '%-36s %-6s %-9s %s\n' "САЙТ" "ПОРТ" "СЛУЖБА" "HTTPS"
+  { printf 'САЙТ\tПОРТ\tСЛУЖБА\tHTTPS\n'
   for f in "$SITES"/*/site.env; do
     [ -f "$f" ] || continue
     d=$(basename "$(dirname "$f")")
     st=$(systemctl is-active "site@$d" 2>/dev/null || true)
     ssl=нет; if grep -q "listen.*443" "/etc/nginx/sites-available/site-$d.conf" 2>/dev/null; then ssl=да; fi
-    printf '%-36s %-6s %-9s %s\n' "$d" "$(env_get "$d" PORT)" "$st" "$ssl"
-  done
+    printf '%s\t%s\t%s\t%s\n' "$d" "$(env_get "$d" PORT)" "$st" "$ssl"
+  done; } | column -t -s "$(printf '\t')"
 }
 
 cmd_password() {
