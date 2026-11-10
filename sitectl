@@ -4,7 +4,7 @@
 #   sitectl add <имя или домен>   создать сайт: sitectl add ivan  →  https://ivan.artwillkrd.ru
 #   sitectl list                  список сайтов
 #   sitectl password <домен>      выдать новый пароль от админ-панели
-#   sitectl ssl <домен>           получить HTTPS-сертификат (если при создании DNS ещё не работал)
+#   sitectl ssl <домен>           получить HTTPS-сертификат (делается и само, каждые 20 минут)
 #   sitectl update                обновить код шаблона из GitHub и пересобрать все сайты
 #   sitectl backup [<домен>]      архив содержимого и заявок в /srv/sites-backup
 #   sitectl remove <домен>        отключить сайт (данные переносятся в /srv/sites-removed)
@@ -85,7 +85,8 @@ get_ssl() {
     nginx -t -q && systemctl reload nginx
     ok "HTTPS включён"
   else
-    warn "Не удалось получить сертификат. Подробности: certbot --nginx -d $d"
+    warn "Сертификат пока не выдан. Обычно это значит, что запись DNS появилась только что: интернету нужно до часа, чтобы её увидеть."
+    echo "   Сервер будет пробовать сам каждые 20 минут. Проверить вручную: sitectl ssl $d"
     return 1
   fi
 }
@@ -184,6 +185,21 @@ cmd_ssl() {
   fi
 }
 
+# Для cron: всем сайтам без HTTPS — попробовать получить сертификат (тихо)
+cmd_ssl_auto() {
+  need_root
+  for f in "$SITES"/*/site.env; do
+    [ -f "$f" ] || continue
+    grep -q '^SITE_URL=http://' "$f" || continue
+    d=$(basename "$(dirname "$f")")
+    if get_ssl "$d" >/dev/null 2>&1; then
+      sed -i "s#^SITE_URL=http://#SITE_URL=https://#" "$f"
+      build_site "$d"; systemctl restart "site@$d"
+      logger -t sitectl "HTTPS включён: $d"
+    fi
+  done
+}
+
 cmd_update() {
   need_root
   say "→ Обновляю код шаблона"
@@ -191,11 +207,17 @@ cmd_update() {
   (cd "$APP/server" && npm ci --omit=dev --no-audit --no-fund >/dev/null)
   install -m 644 "$APP/deploy/site@.service" /etc/systemd/system/site@.service
   install -m 644 "$APP/deploy/site-security.conf" /etc/nginx/snippets/site-security.conf
+  install -m 644 "$APP/deploy/cron" /etc/cron.d/site-template
   ln -sf "$APP/sitectl" /usr/local/bin/sitectl
   systemctl daemon-reload
   for f in "$SITES"/*/site.env; do
     [ -f "$f" ] || continue
     d=$(basename "$(dirname "$f")")
+    # nginx-конфиг из нового шаблона, блоки HTTPS от certbot сохраняются
+    conf="/etc/nginx/sites-available/site-$d.conf"
+    if [ -f "$conf" ] && ! grep -q 'X-Forwarded-Proto' "$conf"; then
+      sed -i 's/^\(\s*\)proxy_set_header X-Real-IP \$remote_addr;/&\n\1proxy_set_header X-Forwarded-Proto $scheme;/' "$conf"
+    fi
     build_site "$d" && systemctl restart "site@$d" && ok "$d"
   done
   nginx -t -q && systemctl reload nginx
@@ -274,6 +296,7 @@ case "${1:-}" in
   list|ls) cmd_list ;;
   password|passwd) shift; cmd_password "$@" ;;
   ssl) shift; cmd_ssl "$@" ;;
+  ssl-auto) cmd_ssl_auto ;;
   update) cmd_update ;;
   backup) shift; cmd_backup "$@" ;;
   remove|rm) shift; cmd_remove "$@" ;;

@@ -18,6 +18,7 @@ die()  { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 [ "$(id -u)" = 0 ] || die "Запустите от root: … | sudo bash -s -- имя-сайта"
 command -v apt-get >/dev/null || die "Нужен Ubuntu или Debian"
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a NEEDRESTART_SUSPEND=1   # без вопросов и длинных списков о перезапуске служб
 
 say "→ 1/5 Системные пакеты"
 # Подкачка 1 ГБ — страховка для сервера с 1 ГБ памяти
@@ -38,7 +39,7 @@ node -v
 # Корневой сертификат Минцифры — нужен для уведомлений в MAX
 if [ ! -f /usr/local/share/ca-certificates/russian_trusted_root_ca.crt ]; then
   curl -fsSL https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt -o /usr/local/share/ca-certificates/russian_trusted_root_ca.crt \
-    && update-ca-certificates >/dev/null || echo "⚠ Не удалось скачать сертификат Минцифры — уведомления в MAX могут не работать"
+    && update-ca-certificates >/dev/null 2>&1 || echo "⚠ Не удалось скачать сертификат Минцифры — уведомления в MAX могут не работать"
 fi
 
 say "→ 3/5 Код шаблона"
@@ -47,7 +48,7 @@ if [ -d "$APP/.git" ]; then
 else
   git clone -q --depth 1 -b "$BRANCH" "$REPO_URL" "$APP"
 fi
-(cd "$APP/server" && npm ci --omit=dev --no-audit --no-fund >/dev/null)
+(cd "$APP/server" && npm ci --omit=dev --no-audit --no-fund --loglevel=error >/dev/null)
 chmod +x "$APP/sitectl"
 ln -sf "$APP/sitectl" /usr/local/bin/sitectl
 
@@ -58,6 +59,8 @@ chmod 755 /srv/sites /var/www/sites
 install -m 644 "$APP/deploy/site@.service" /etc/systemd/system/site@.service
 mkdir -p /etc/nginx/snippets
 install -m 644 "$APP/deploy/site-security.conf" /etc/nginx/snippets/site-security.conf
+# Сертификаты для сайтов, у которых DNS заработал позже, — автоматически
+install -m 644 "$APP/deploy/cron" /etc/cron.d/site-template
 rm -f /etc/nginx/sites-enabled/default
 # Неизвестные адреса — пустой ответ, а не первый попавшийся сайт
 cat > /etc/nginx/sites-available/000-default.conf <<'NGINX'

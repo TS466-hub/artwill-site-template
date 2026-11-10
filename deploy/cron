@@ -1,0 +1,2 @@
+# /etc/cron.d/site-template — HTTPS для сайтов, у которых DNS заработал после создания
+*/20 * * * * root /usr/local/bin/sitectl ssl-auto >/dev/null 2>&1

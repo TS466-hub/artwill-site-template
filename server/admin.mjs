@@ -399,8 +399,9 @@ export async function createAdmin({ dataDir, siteDir, password: envPassword, log
         await new Promise((r) => setTimeout(r, 400));
         if (!samePass(p || '')) { tries.set(ip, [...(tries.get(ip) || []).filter((t) => Date.now() - t < 15 * 60e3), Date.now()]); log('admin: неверный пароль', ip); throw fail(401, 'Неверный пароль'); }
         tries.delete(ip);
-        const local = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(req.headers.host || '');
-        res.setHeader('Set-Cookie', `aw_admin=${newToken()}; Path=/api/admin; HttpOnly; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}${local ? '' : '; Secure'}`);
+        // Secure — только когда сайт открыт по https (пока сертификата нет, вход по http тоже должен работать)
+        const https = String(req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https';
+        res.setHeader('Set-Cookie', `aw_admin=${newToken()}; Path=/api/admin; HttpOnly; SameSite=Strict; Max-Age=${SESSION_DAYS * 86400}${https ? '; Secure' : ''}`);
         log('admin: вход', ip);
         return send(res, 200, { ok: true }), true;
       }
