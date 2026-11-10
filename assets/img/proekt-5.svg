@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" width="1280" height="960">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ece5dc"/><stop offset="1" stop-color="#dccfc0"/></linearGradient></defs>
+<rect width="1280" height="960" fill="url(#g)"/>
+<g fill="none" stroke="#4a3b2d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"><path d="M384.0 288.0h512.0v288.0h-512.0z"/><path d="M332.8 576.0h614.4v76.8h-614.4z"/><path d="M384.0 652.8000000000001l-38.4 153.6M896.0 652.8000000000001l38.4 153.6M460.79999999999995 652.8000000000001v115.19999999999999M819.2 652.8000000000001v115.19999999999999"/><path d="M153.6 806.4H1126.4"/><circle cx="1049.6" cy="192.0" r="57.599999999999994"/></g>
+<g transform="translate(24 904)"><rect width="174" height="32" rx="16" fill="#fff" fill-opacity=".85"/><text x="87" y="21" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="13" font-weight="600" fill="#3f413d">Замените на своё фото</text></g>
+</svg>

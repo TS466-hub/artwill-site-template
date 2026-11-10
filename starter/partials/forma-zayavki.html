@@ -1,0 +1,16 @@
+<!--meta {
+  "title": "Форма заявки"
+} -->
+
+<form class="form reveal" data-form="zayavka" novalidate>
+  <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <div class="form__row">
+    <label class="fld"><span>Имя*</span><input name="name" required autocomplete="name" placeholder="Как к вам обращаться"></label>
+    <label class="fld"><span>Телефон или Telegram*</span><input name="contact" required data-contact placeholder="+7 900 000-00-00 или @ник"></label>
+  </div>
+  <label class="fld"><span>Расскажите о задаче</span><textarea name="comment" rows="4" placeholder="Что за объект, площадь, сроки, пожелания"></textarea></label>
+  <label class="chk"><input type="checkbox" name="consent" required><span>Согласен(на) на обработку персональных данных и с <a href="/politika-konfidencialnosti/" target="_blank">политикой конфиденциальности</a></span></label>
+  <button class="btn btn--accent btn--lg btn--block" type="submit">Отправить заявку</button>
+  <p class="form__note">Отвечу в течение рабочего дня</p>
+  <p class="form__err" role="alert"></p>
+</form>

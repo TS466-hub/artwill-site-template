@@ -1,0 +1,14 @@
+<!--meta {
+  "title": "Форма заявки (отдельная копия)",
+  "category": "Формы и призывы",
+  "order": 19
+} -->
+
+<form class="form reveal" data-form="custom" data-title="Заказ звонка" novalidate>
+  <input class="hp" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+  <label class="fld"><span>Имя*</span><input name="name" required autocomplete="name"></label>
+  <label class="fld"><span>Телефон*</span><input name="phone" type="tel" required data-phone placeholder="+7 900 000-00-00" autocomplete="tel"></label>
+  <label class="chk"><input type="checkbox" name="consent" required><span>Согласен(на) на обработку персональных данных и с <a href="/politika-konfidencialnosti/" target="_blank">политикой конфиденциальности</a></span></label>
+  <button class="btn btn--accent btn--block" type="submit">Перезвоните мне</button>
+  <p class="form__err" role="alert"></p>
+</form>

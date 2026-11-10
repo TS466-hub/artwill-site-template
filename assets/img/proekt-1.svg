@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 960" width="1280" height="960">
+<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#e7e4dc"/><stop offset="1" stop-color="#d4d8cf"/></linearGradient></defs>
+<rect width="1280" height="960" fill="url(#g)"/>
+<g fill="none" stroke="#2f3b35" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".55"><rect x="384.0" y="249.60000000000002" width="512.0" height="384.0"/><path d="M384.0 249.60000000000002L0 0"/><path d="M896.0 249.60000000000002L1280 0"/><path d="M384.0 633.6L0 960"/><path d="M896.0 633.6L1280 960"/><rect x="512.0" y="307.2" width="256.0" height="192.0"/><path d="M640.0 307.2V499.20000000000005M512.0 403.2H768.0"/><path d="M204.8 806.4h256.0v-96.0h-256.0z M204.8 710.4v-76.8h38.4v76.8 M422.40000000000003 710.4v-76.8h38.4v76.8"/><path d="M1024.0 825.6V480.0M947.2 480.0h153.6l-38.4 -67.2h-76.8z"/></g>
+<g transform="translate(24 904)"><rect width="174" height="32" rx="16" fill="#fff" fill-opacity=".85"/><text x="87" y="21" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="13" font-weight="600" fill="#3f413d">Замените на своё фото</text></g>
+</svg>

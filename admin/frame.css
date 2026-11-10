@@ -1,0 +1,17 @@
+/* Стили внутри окна редактора (подключаются только в режиме правки, на сайт не попадают) */
+.aw-edit [data-aw-include] { display: contents; }
+.aw-edit [data-aw-hover] { outline: 2px dashed rgba(37, 99, 235, .6) !important; outline-offset: -2px; cursor: pointer; }
+.aw-edit [data-aw-sel] { outline: 2px solid #2563eb !important; outline-offset: -2px; }
+.aw-edit [data-aw-include][data-aw-hover] > * { outline: 2px dashed rgba(217, 119, 6, .75) !important; outline-offset: -2px; cursor: pointer; }
+.aw-edit [data-aw-include][data-aw-sel] > * { outline: 2px solid #d97706 !important; outline-offset: -2px; }
+.aw-edit [contenteditable="true"] { outline: 2px solid #2563eb !important; outline-offset: 2px; cursor: text; }
+.aw-edit .reveal { opacity: 1 !important; transform: none !important; }
+.aw-edit .ba__range { pointer-events: none; }
+.aw-edit .hp { display: none !important; }
+.aw-edit img { -webkit-user-drag: none; }
+.aw-edit.aw-show-hidden [hidden]:not(.hp) { display: block !important; }
+.aw-edit.aw-show-hidden dialog { display: block !important; position: relative !important; margin: 24px auto !important; inset: auto !important; }
+.aw-edit main { min-height: 120px; }
+.aw-edit .promo__track, .aw-edit .marquee__track { animation-play-state: paused !important; }
+/* Предпросмотр шаблона в окне «Добавить блок»: без шапки и подвала */
+.aw-bare [data-aw-include="header"], .aw-bare [data-aw-include="footer"], .aw-bare .crumbs { display: none !important; }

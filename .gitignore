@@ -1,0 +1,7 @@
+node_modules/
+.local/
+content/
+dist/
+.env
+.DS_Store
+.claude/

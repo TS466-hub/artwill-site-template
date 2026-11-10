@@ -1,0 +1,28 @@
+# /etc/systemd/system/site@.service — один экземпляр на сайт: systemctl status site@ivan.artwillkrd.ru
+[Unit]
+Description=Сайт %i (заявки и админ-панель)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=sites
+Group=sites
+EnvironmentFile=/srv/sites/%i/site.env
+EnvironmentFile=-/etc/site-template/smtp.env
+Environment=NODE_ENV=production
+Environment=SITE_DIR=/opt/site-template
+Environment=ENV_FILE=/dev/null
+# Корневой сертификат Минцифры — нужен для API MAX
+Environment=NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/russian_trusted_root_ca.crt
+ExecStart=/usr/bin/node /opt/site-template/server/server.mjs
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/sites/%i /var/www/sites/%i
+MemoryMax=256M
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,283 @@
+#!/usr/bin/env bash
+# sitectl — управление сайтами на сервере (сайт-шаблон с админ-панелью).
+#
+#   sitectl add <имя или домен>   создать сайт: sitectl add ivan  →  https://ivan.artwillkrd.ru
+#   sitectl list                  список сайтов
+#   sitectl password <домен>      выдать новый пароль от админ-панели
+#   sitectl ssl <домен>           получить HTTPS-сертификат (если при создании DNS ещё не работал)
+#   sitectl update                обновить код шаблона из GitHub и пересобрать все сайты
+#   sitectl backup [<домен>]      архив содержимого и заявок в /srv/sites-backup
+#   sitectl remove <домен>        отключить сайт (данные переносятся в /srv/sites-removed)
+#   sitectl smtp                  почта, с которой сайты отправляют заявки (общая для всех сайтов)
+#   sitectl config                базовый домен и почта для сертификатов
+set -euo pipefail
+
+APP=/opt/site-template
+SITES=/srv/sites
+WWW=/var/www/sites
+CONF_DIR=/etc/site-template
+CONF=$CONF_DIR/config
+USER_NAME=sites
+
+BASE_DOMAIN=artwillkrd.ru
+CERT_EMAIL=
+# shellcheck disable=SC1090
+[ -f "$CONF" ] && . "$CONF"
+
+say()  { printf '\033[1m%s\033[0m\n' "$*"; }
+ok()   { printf '\033[32m✓ %s\033[0m\n' "$*"; }
+warn() { printf '\033[33m⚠ %s\033[0m\n' "$*"; }
+die()  { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
+need_root() { [ "$(id -u)" = 0 ] || die "Запустите от root (или через sudo)"; }
+
+# имя → полный домен; проверка допустимых символов
+domain_of() {
+  local d
+  d=$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]')
+  d=${d#http://}; d=${d#https://}; d=${d%%/*}
+  [ -n "$d" ] || die "Укажите имя сайта, например: sitectl add ivan"
+  case "$d" in *.*) ;; *) d="$d.$BASE_DOMAIN" ;; esac
+  printf '%s' "$d" | grep -Eq '^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$' || die "Недопустимое имя: $d (латиница, цифры и дефис)"
+  printf '%s' "$d"
+}
+site_exists() { [ -f "$SITES/$1/site.env" ]; }
+env_get() { grep -E "^$2=" "$SITES/$1/site.env" | head -1 | cut -d= -f2-; }
+gen_pass() { openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-14; }
+server_ip() { hostname -I 2>/dev/null | awk '{print $1}'; }
+
+build_site() { # $1 = домен
+  local d=$1
+  runuser -u "$USER_NAME" -- env CONTENT_DIR="$SITES/$d/content" DIST_DIR="$WWW/$d/dist" SITE_URL="$(env_get "$d" SITE_URL)" \
+    node "$APP/build.mjs" >/dev/null
+}
+
+nginx_conf() { # $1 = домен, $2 = порт
+  sed -e "s/__DOMAIN__/$1/g" -e "s/__PORT__/$2/g" "$APP/deploy/nginx-site.conf" > "/etc/nginx/sites-available/site-$1.conf"
+  ln -sf "/etc/nginx/sites-available/site-$1.conf" "/etc/nginx/sites-enabled/site-$1.conf"
+  nginx -t -q && systemctl reload nginx
+}
+
+# Отвечает ли домен с этого сервера (DNS уже указывает сюда)
+dns_points_here() {
+  local d=$1 token
+  token=$(openssl rand -hex 12)
+  mkdir -p "$WWW/$d/dist/.well-known"
+  printf '%s' "$token" > "$WWW/$d/dist/.well-known/site-check.txt"
+  local got
+  got=$(curl -s --max-time 8 "http://$d/.well-known/site-check.txt" || true)
+  rm -f "$WWW/$d/dist/.well-known/site-check.txt"
+  rmdir "$WWW/$d/dist/.well-known" 2>/dev/null || true
+  [ "$got" = "$token" ]
+}
+
+get_ssl() {
+  local d=$1
+  if ! dns_points_here "$d"; then
+    warn "Адрес $d пока не ведёт на этот сервер (IP сервера: $(server_ip))."
+    echo "   Добавьте в DNS A-запись: ${d%%.$BASE_DOMAIN} → $(server_ip)  (или общую *.$BASE_DOMAIN → $(server_ip))"
+    echo "   Когда DNS заработает (15 минут – несколько часов), выполните:  sitectl ssl $d"
+    return 1
+  fi
+  local mail=(--register-unsafely-without-email)
+  [ -n "$CERT_EMAIL" ] && mail=(-m "$CERT_EMAIL")
+  if certbot --nginx -d "$d" --redirect --agree-tos -n "${mail[@]}" >/dev/null 2>&1; then
+    sed -i -E "s/listen (\[::\]:)?443 ssl( ipv6only=on)?;/listen \1443 ssl http2\2;/" "/etc/nginx/sites-available/site-$d.conf"
+    nginx -t -q && systemctl reload nginx
+    ok "HTTPS включён"
+  else
+    warn "Не удалось получить сертификат. Подробности: certbot --nginx -d $d"
+    return 1
+  fi
+}
+
+cmd_add() {
+  need_root
+  local d port pass
+  d=$(domain_of "${1:-}")
+  site_exists "$d" && die "Сайт $d уже есть. Новый пароль: sitectl password $d"
+  [ -d "$APP/starter" ] || die "Не найден код шаблона в $APP — запустите install.sh"
+
+  # свободный порт
+  port=3101
+  for f in "$SITES"/*/site.env; do
+    [ -f "$f" ] || continue
+    p=$(grep -E '^PORT=' "$f" | cut -d= -f2)
+    if [ -n "$p" ] && [ "$p" -ge "$port" ]; then port=$((p + 1)); fi
+  done
+  pass=$(gen_pass)
+
+  say "→ Создаю сайт $d"
+  mkdir -p "$SITES/$d/data" "$WWW/$d"
+  cp -a "$APP/starter" "$SITES/$d/content"
+  cat > "$SITES/$d/site.env" <<EOF
+# Настройки сайта $d (меняются командой sitectl; уведомления и пароль — в админ-панели → «Настройки»)
+PORT=$port
+SITE_URL=https://$d
+ADMIN_PASSWORD=$pass
+CONTENT_DIR=$SITES/$d/content
+DATA_DIR=$SITES/$d/data
+DIST_DIR=$WWW/$d/dist
+EOF
+  chown -R "$USER_NAME:$USER_NAME" "$SITES/$d" "$WWW/$d"
+  chown "root:$USER_NAME" "$SITES/$d/site.env"
+  chmod 750 "$SITES/$d"
+  chmod 640 "$SITES/$d/site.env"
+  chmod 755 "$WWW/$d"
+
+  build_site "$d"
+  systemctl enable --now "site@$d" >/dev/null 2>&1
+  nginx_conf "$d" "$port"
+  sleep 1
+  curl -fsS "http://127.0.0.1:$port/api/health" >/dev/null && ok "Сайт запущен" || warn "Служба не ответила: journalctl -u site@$d -n 50"
+
+  local proto=http
+  get_ssl "$d" && proto=https || sed -i "s#^SITE_URL=https://#SITE_URL=http://#" "$SITES/$d/site.env"
+  # при http — пересобрать с правильным адресом (canonical, sitemap)
+  if [ "$proto" = http ]; then build_site "$d"; systemctl restart "site@$d"; fi
+
+  echo
+  say "Готово!"
+  echo "   Сайт:          $proto://$d/"
+  echo "   Админ-панель:  $proto://$d/admin/"
+  echo "   Пароль:        $pass"
+  echo
+  echo "   Передайте пароль владельцу сайта лично. Сменить его можно в админ-панели → «Настройки»."
+}
+
+cmd_list() {
+  printf '%-36s %-6s %-9s %s\n' "САЙТ" "ПОРТ" "СЛУЖБА" "HTTPS"
+  for f in "$SITES"/*/site.env; do
+    [ -f "$f" ] || continue
+    d=$(basename "$(dirname "$f")")
+    st=$(systemctl is-active "site@$d" 2>/dev/null || true)
+    ssl=нет; if grep -q "listen.*443" "/etc/nginx/sites-available/site-$d.conf" 2>/dev/null; then ssl=да; fi
+    printf '%-36s %-6s %-9s %s\n' "$d" "$(env_get "$d" PORT)" "$st" "$ssl"
+  done
+}
+
+cmd_password() {
+  need_root
+  local d pass
+  d=$(domain_of "${1:-}")
+  site_exists "$d" || die "Сайта $d нет"
+  pass=${2:-$(gen_pass)}
+  printf '%s' "$pass" | grep -Eq '^[A-Za-z0-9._@%+-]{8,}$' || die "Пароль: не короче 8 символов, латиница/цифры"
+  sed -i "s/^ADMIN_PASSWORD=.*/ADMIN_PASSWORD=$pass/" "$SITES/$d/site.env"
+  # пароль, заданный в админке, сбрасываем — теперь действует новый
+  local s="$SITES/$d/data/settings.json"
+  if [ -f "$s" ]; then
+    node -e 'const f=process.argv[1],fs=require("fs");const j=JSON.parse(fs.readFileSync(f,"utf8"));delete j.passwordHash;fs.writeFileSync(f,JSON.stringify(j,null,2)+"\n")' "$s"
+  fi
+  systemctl restart "site@$d"
+  ok "Новый пароль для $d: $pass"
+}
+
+cmd_ssl() {
+  need_root
+  local d
+  d=$(domain_of "${1:-}")
+  site_exists "$d" || die "Сайта $d нет"
+  if get_ssl "$d"; then
+    sed -i "s#^SITE_URL=http://#SITE_URL=https://#" "$SITES/$d/site.env"
+    build_site "$d"; systemctl restart "site@$d"
+    ok "https://$d/"
+  fi
+}
+
+cmd_update() {
+  need_root
+  say "→ Обновляю код шаблона"
+  git -C "$APP" pull --ff-only
+  (cd "$APP/server" && npm ci --omit=dev --no-audit --no-fund >/dev/null)
+  install -m 644 "$APP/deploy/site@.service" /etc/systemd/system/site@.service
+  install -m 644 "$APP/deploy/site-security.conf" /etc/nginx/snippets/site-security.conf
+  ln -sf "$APP/sitectl" /usr/local/bin/sitectl
+  systemctl daemon-reload
+  for f in "$SITES"/*/site.env; do
+    [ -f "$f" ] || continue
+    d=$(basename "$(dirname "$f")")
+    build_site "$d" && systemctl restart "site@$d" && ok "$d"
+  done
+  nginx -t -q && systemctl reload nginx
+}
+
+cmd_backup() {
+  need_root
+  mkdir -p /srv/sites-backup
+  local list=() ts
+  ts=$(date +%Y%m%d-%H%M)
+  if [ -n "${1:-}" ]; then list=("$(domain_of "$1")"); else for f in "$SITES"/*/site.env; do if [ -f "$f" ]; then list+=("$(basename "$(dirname "$f")")"); fi; done; fi
+  [ ${#list[@]} -gt 0 ] || die "Сайтов нет"
+  for d in "${list[@]}"; do
+    site_exists "$d" || die "Сайта $d нет"
+    tar -czf "/srv/sites-backup/$d-$ts.tar.gz" -C "$SITES" "$d"
+    ok "/srv/sites-backup/$d-$ts.tar.gz"
+  done
+}
+
+cmd_remove() {
+  need_root
+  local d
+  d=$(domain_of "${1:-}")
+  site_exists "$d" || die "Сайта $d нет"
+  if [ "${2:-}" != "--yes" ]; then
+    printf 'Отключить сайт %s? Данные сохранятся в /srv/sites-removed. Введите домен для подтверждения: ' "$d"
+    read -r answer </dev/tty
+    [ "$answer" = "$d" ] || die "Отменено"
+  fi
+  systemctl disable --now "site@$d" >/dev/null 2>&1 || true
+  rm -f "/etc/nginx/sites-enabled/site-$d.conf" "/etc/nginx/sites-available/site-$d.conf"
+  nginx -t -q && systemctl reload nginx
+  mkdir -p /srv/sites-removed
+  local ts; ts=$(date +%Y%m%d-%H%M)
+  mv "$SITES/$d" "/srv/sites-removed/$d-$ts"
+  rm -rf "${WWW:?}/$d"   # готовые страницы — их можно собрать заново из содержимого
+  ok "Сайт $d отключён. Данные: /srv/sites-removed/$d-$ts"
+}
+
+cmd_smtp() {
+  need_root
+  echo "Почта, с которой все сайты на этом сервере отправляют письма о заявках"
+  echo "(например, отдельный ящик noreply@$BASE_DOMAIN в REG.RU). Получателя каждый владелец указывает в своей админке."
+  local host port user pass from
+  read -r -p "SMTP-сервер [mail.hosting.reg.ru]: " host </dev/tty; host=${host:-mail.hosting.reg.ru}
+  read -r -p "Порт [465]: " port </dev/tty; port=${port:-465}
+  read -r -p "Логин (адрес ящика): " user </dev/tty
+  read -r -s -p "Пароль от ящика: " pass </dev/tty; echo
+  read -r -p "Адрес отправителя [$user]: " from </dev/tty; from=${from:-$user}
+  mkdir -p "$CONF_DIR"
+  umask 077
+  cat > "$CONF_DIR/smtp.env" <<EOF
+SMTP_HOST=$host
+SMTP_PORT=$port
+SMTP_USER=$user
+SMTP_PASS=$pass
+SMTP_FROM=$from
+EOF
+  chmod 600 "$CONF_DIR/smtp.env"
+  for f in "$SITES"/*/site.env; do if [ -f "$f" ]; then systemctl restart "site@$(basename "$(dirname "$f")")"; fi; done
+  ok "Сохранено в $CONF_DIR/smtp.env, сайты перезапущены"
+}
+
+cmd_config() {
+  need_root
+  local b e
+  read -r -p "Базовый домен для коротких имён [$BASE_DOMAIN]: " b </dev/tty; b=${b:-$BASE_DOMAIN}
+  read -r -p "Почта для уведомлений Let's Encrypt [${CERT_EMAIL:-нет}]: " e </dev/tty; e=${e:-$CERT_EMAIL}
+  mkdir -p "$CONF_DIR"
+  printf 'BASE_DOMAIN=%s\nCERT_EMAIL=%s\n' "$b" "$e" > "$CONF"
+  ok "Сохранено в $CONF"
+}
+
+case "${1:-}" in
+  add) shift; cmd_add "$@" ;;
+  list|ls) cmd_list ;;
+  password|passwd) shift; cmd_password "$@" ;;
+  ssl) shift; cmd_ssl "$@" ;;
+  update) cmd_update ;;
+  backup) shift; cmd_backup "$@" ;;
+  remove|rm) shift; cmd_remove "$@" ;;
+  smtp) cmd_smtp ;;
+  config) cmd_config ;;
+  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+esac
